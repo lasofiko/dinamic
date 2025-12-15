@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+
 struct Inform
 {
     char day[11];
@@ -10,6 +11,7 @@ struct Inform
     char type;
     float summ;
 };
+
 struct Person
 {
     int id;
@@ -19,12 +21,31 @@ struct Person
     int tr_cnt;
     struct Inform* inf;
 };
-int ttime(char* t, char* st, char* en)
+
+int is_time(char* t, char* st, char* en)
 {
     if (strcmp(t, st) >= 0 && strcmp(t, en) <= 0)
         return 1;
     return 0;
 }
+
+char* read_non_empty_line(FILE* f, char* buffer, int size)
+{
+    while (1)
+    {
+        if (fgets(buffer, size, f) == NULL)
+            return NULL;
+
+        // скип символы новой строки
+        buffer[strcspn(buffer, "\n")] = '\0';
+        buffer[strcspn(buffer, "\r")] = '\0';
+
+        // скип пустые строки
+        if (strlen(buffer) > 0)
+            return buffer;
+    }
+}
+
 int main()
 {
     setlocale(LC_ALL, "Russian");
@@ -32,90 +53,152 @@ int main()
     FILE* f = NULL;
     int cnt = 0;
     struct Person* c = NULL;
+    float mx = 0.0f;
+    int* mx_cl = NULL;
+    int mx_cnt = 0;
+    char sttime[9] = { 0 };
+    char edtime[9] = { 0 };
+    int scanf_result = 0;
 
     errno_t error = fopen_s(&f, "in.txt", "r");
-    if (error != 0 || f == NULL)
-    {
-        printf("Файл не открывается\n");
-        return 1;
-    }
 
-    while (!feof(f))
+    char buffer[256];
+
+    while (read_non_empty_line(f, buffer, sizeof(buffer)) != NULL)
     {
         struct Person cnew;
-        int result;
 
-        result = fscanf(f, "%d", &cnew.id);
-        if (result != 1)
+        cnew.id = atoi(buffer);
+
+        if (read_non_empty_line(f, buffer, sizeof(buffer)) == NULL)
+        {
+            printf("нет строки с ФИО %d\n", cnew.id);
             break;
+        }
 
-        result = fscanf(f, "%49s %49s %49s",
-            cnew.surname,
-            cnew.name,
-            cnew.otch);
-        result = fscanf(f, "%d", &cnew.tr_cnt);
+        char* token = strtok(buffer, "\t");
+        if (token)
+            strncpy(cnew.surname, token, sizeof(cnew.surname) - 1);
+        else
+            strcpy(cnew.surname, "Неизвестно");
+
+        token = strtok(NULL, "\t");
+        if (token)
+            strncpy(cnew.name, token, sizeof(cnew.name) - 1);
+        else
+            strcpy(cnew.name, "Неизвестно");
+
+        token = strtok(NULL, "\t");
+        if (token)
+            strncpy(cnew.otch, token, sizeof(cnew.otch) - 1);
+        else
+            strcpy(cnew.otch, "Неизвестно");
+
+        if (read_non_empty_line(f, buffer, sizeof(buffer)) == NULL)
+        {
+            printf("нет строки с количеством транзакций %d\n", cnew.id);
+            break;
+        }
+
+        cnew.tr_cnt = atoi(buffer);
 
         cnew.inf = (struct Inform*)malloc(cnew.tr_cnt * sizeof(struct Inform));
+        if (cnew.inf == NULL)
+        {
+            printf("Ошибка выделения памяти для клиента %d\n", cnew.id);
+            break;
+        }
 
+        int read_error = 0;
         for (int i = 0; i < cnew.tr_cnt; ++i)
         {
-            char type_str[10];
-            result = fscanf(f, "%10s %8s %9s %f",
-                cnew.inf[i].day,
-                cnew.inf[i].time,
-                type_str,
-                &cnew.inf[i].summ);
-
-            if (result != 4)
+            if (read_non_empty_line(f, buffer, sizeof(buffer)) == NULL)
             {
-                printf("Ошибка чтения транзакции %d\n", i + 1);
+                printf("не хватает транзакций для клиента %d\n", cnew.id);
+                read_error = 1;
+                break;
+            }
+
+            token = strtok(buffer, "\t");
+            if (token)
+                strncpy(cnew.inf[i].day, token, sizeof(cnew.inf[i].day) - 1);
+            else
+                strcpy(cnew.inf[i].day, "01.01.2023");
+
+            token = strtok(NULL, "\t");
+            if (token)
+                strncpy(cnew.inf[i].time, token, sizeof(cnew.inf[i].time) - 1);
+            else
+                strcpy(cnew.inf[i].time, "00:00:00");
+
+            token = strtok(NULL, "\t");
+            if (token)
+            {
+                if (strcmp(token, "Приход") == 0)
+                    cnew.inf[i].type = '+';
+                else if (strcmp(token, "Расход") == 0)
+                    cnew.inf[i].type = '-';
+                else
+                    cnew.inf[i].type = '?';
+            }
+            else
+            {
                 cnew.inf[i].type = '?';
             }
-            else if (strcmp(type_str, "Приход") == 0)
-                cnew.inf[i].type = '+';
-            else if (strcmp(type_str, "Расход") == 0)
-                cnew.inf[i].type = '-';
+
+            token = strtok(NULL, "\t");
+            if (token)
+                cnew.inf[i].summ = (float)atof(token);
             else
-                cnew.inf[i].type = type_str[0];
-            
+                cnew.inf[i].summ = 0.0f;
+        }
+
+        if (read_error)
+        {
+            free(cnew.inf);
+            break;
         }
 
         struct Person* temp = (struct Person*)realloc(c, (cnt + 1) * sizeof(struct Person));
+
         c = temp;
         c[cnt] = cnew;
         cnt++;
     }
 
     fclose(f);
-    char sttime[9], edtime[9];
+
+    printf("\nВсего клиентов прочитано: %d\n\n", cnt);
 
     printf("Начальное время: ");
-    scanf("%8s", sttime);
+    scanf_result = scanf("%8s", sttime);
 
     printf("Конечное время: ");
-    scanf("%8s", edtime);
+    scanf_result = scanf("%8s", edtime);
 
-    float mx = 0.0f;
-    int* mx_cl = NULL;
-    int mx_cnt = 0;
-
+    printf("\nРасходы клиентов в период с %s до %s:\n", sttime, edtime);
     for (int i = 0; i < cnt; ++i)
     {
         float csp = 0.0f;
         for (int j = 0; j < c[i].tr_cnt; ++j)
-            if (c[i].inf[j].type == '-' && ttime(c[i].inf[j].time, sttime, edtime))
+        {
+            if (c[i].inf[j].type == '-' && is_time(c[i].inf[j].time, sttime, edtime))
             {
                 csp += c[i].inf[j].summ;
             }
+        }
 
-        printf("Клиент %d: %s %s  расходы: %.2f\n",
+        printf("Клиент %d: %s %s - расходы: %.2f\n",
             c[i].id, c[i].surname, c[i].name, csp);
 
         if (csp > mx && csp > 0.0f)
         {
             mx = csp;
-            free(mx_cl);
-            mx_cl = NULL;
+            if (mx_cl != NULL)
+            {
+                free(mx_cl);
+                mx_cl = NULL;
+            }
             mx_cnt = 0;
 
             mx_cl = (int*)malloc(sizeof(int));
@@ -125,7 +208,7 @@ int main()
                 mx_cnt = 1;
             }
         }
-        else if (csp == mx && csp > 0.0f)
+        else if (csp == mx && csp > 0.0f && mx_cl != NULL)
         {
             int* temp = (int*)realloc(mx_cl, (mx_cnt + 1) * sizeof(int));
             if (temp != NULL)
@@ -136,32 +219,30 @@ int main()
             }
         }
     }
-    if (mx <= 0.0f)
-        printf("\nНет расходных операций в период с %s до %s\n", sttime, edtime);
 
+    if (mx <= 0.0f)
+    {
+        printf("\nНет расходных операций в период с %s до %s\n", sttime, edtime);
+    }
     else
     {
-        printf("Максимальные расходы (%.2f руб.) в период %s - %s\n", mx, sttime, edtime);
+        printf("\nМаксимальные расходы (%.2f руб.) в период %s - %s\n", mx, sttime, edtime);
         printf("Клиенты с максимальными расходами:\n");
 
         for (int i = 0; i < mx_cnt; ++i)
         {
-            int idx = mx_cl[i];
-            printf("%d. ID: %d, ФИО: %s %s %s\n",
-                i + 1,
-                c[idx].id,
-                c[idx].surname,
-                c[idx].name,
-                c[idx].otch);
+            if (mx_cl != NULL && i < mx_cnt)
+            {
+                int idx = mx_cl[i];
+                printf("%d. ID: %d, ФИО: %s %s %s\n",
+                    i + 1,
+                    c[idx].id,
+                    c[idx].surname,
+                    c[idx].name,
+                    c[idx].otch);
+            }
         }
     }
 
-    for (int i = 0; i < cnt; ++i)
-        free(c[i].inf);
-
-    free(c);
-    free(mx_cl);
-    while (getchar() != '\n');
-    getchar();
     return 0;
 }
